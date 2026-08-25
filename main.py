@@ -1,275 +1,174 @@
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
+import pandas as pd
 
-
-# ---------------------------------------------------------
-# 기본 페이지 설정
-# ---------------------------------------------------------
+# 페이지의 제목, 아이콘, 레이아웃을 설정합니다.
 st.set_page_config(
-    page_title="주식 한눈에 보기",
+    page_title="따뜻한 주식 알리미",
     page_icon="📈",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-
-# ---------------------------------------------------------
-# 따뜻한 느낌의 간단한 스타일 설정
-# ---------------------------------------------------------
-st.markdown(
-    """
-    <style>
+# 웹앱 전체의 가독성과 따뜻한 분위기를 연출하기 위한 커스텀 스타일링입니다.
+st.markdown("""
+<style>
+    /* 배경색을 따뜻하고 편안한 미색 톤으로 설정 */
     .stApp {
-        background-color: #FFF9F3;
+        background-color: #FAF9F6;
     }
-
-    h1, h2, h3 {
-        color: #5C4033;
-    }
-
-    .description {
-        color: #806B5A;
-        font-size: 16px;
-        margin-bottom: 20px;
-    }
-
-    .metric-card {
-        background-color: #FFF1E3;
-        border: 1px solid #F2D4B7;
+    /* 카드 컴포넌트에 은은한 그림자와 부드러운 테두리 적용 */
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF;
+        border: 1px solid #F0EAE1;
         border-radius: 12px;
-        padding: 18px;
-        text-align: center;
+        padding: 16px;
+        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.03);
     }
+</style>
+""", unsafe_allow_html=True)
 
-    .metric-title {
-        color: #806B5A;
-        font-size: 14px;
-        margin-bottom: 6px;
-    }
+# 앱 상단 제목 및 서비스 소개 문구
+st.title("📈 한눈에 보는 따뜻한 주식 알리미")
+st.markdown("""
+궁금한 주식 종목의 **티커 코드**를 입력해 보세요. 
+최근 1년 동안의 주가 흐름과 현재 상태를 따뜻하고 보기 쉽게 정리해 드립니다! ✨
+""")
 
-    .metric-value {
-        color: #5C4033;
-        font-size: 25px;
-        font-weight: 700;
-    }
+st.divider()
 
-    .metric-change {
-        font-size: 14px;
-        margin-top: 4px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# 사용자로부터 주식 종목 코드를 입력받는 검색창입니다.
+st.subheader("🔍 종목 검색")
+col_input, col_help = st.columns([3, 1])
 
-
-# ---------------------------------------------------------
-# 제목과 설명
-# ---------------------------------------------------------
-st.title("📈 주식 한눈에 보기")
-
-st.markdown(
-    '<div class="description">'
-    "종목 코드를 입력하면 최근 1년간의 주가 흐름과 현재가, "
-    "1년 등락률을 쉽게 확인할 수 있어요."
-    "</div>",
-    unsafe_allow_html=True,
-)
-
-
-# ---------------------------------------------------------
-# 종목 코드 입력
-# ---------------------------------------------------------
-ticker = st.text_input(
-    "🔎 종목 코드",
-    value="005930.KS",
-    placeholder="예: 005930.KS (삼성전자), AAPL (애플)",
-    help="Yahoo Finance에서 사용하는 종목 코드를 입력하세요.",
-).strip()
-
-
-# ---------------------------------------------------------
-# 입력된 종목의 주가 데이터를 가져오는 함수
-# ---------------------------------------------------------
-@st.cache_data(ttl=300)
-def get_stock_data(symbol):
-    """
-    Yahoo Finance에서 최근 1년간 주가 데이터를 가져옵니다.
-
-    cache_data를 사용하면 같은 종목을 반복해서 조회할 때
-    불필요하게 데이터를 다시 다운로드하지 않습니다.
-    """
-
-    # yfinance로 최근 1년 데이터를 다운로드합니다.
-    data = yf.download(
-        symbol,
-        period="1y",
-        interval="1d",
-        auto_adjust=False,
-        progress=False,
+with col_input:
+    # 기본값으로 삼성전자(005930.KS)를 지정합니다.
+    ticker_input = st.text_input(
+        label="주식 종목 코드를 입력하세요",
+        value="005930.KS",
+        placeholder="예: 005930.KS, AAPL, TSLA",
+        label_visibility="collapsed"
     )
 
-    return data
+with col_help:
+    st.caption("💡 **입력 팁**\n- 한국 코스피: `005930.KS`\n- 한국 코스닥: `068270.KQ`\n- 미국 주식: `AAPL`, `NVDA`")
 
+# 입력된 코드가 있을 때 yfinance로 데이터 조회를 시작합니다.
+if ticker_input:
+    # 공백 제거 및 대문자 변환
+    ticker = ticker_input.strip().upper()
+    
+    with st.spinner(f"'{ticker}' 데이터를 따뜻하게 가져오는 중입니다... ☕"):
+        try:
+            # yfinance를 사용하여 해당 종목의 객체를 생성합니다.
+            stock_data = yf.Ticker(ticker)
+            
+            # 최근 1년(1y)간의 일별 데이터를 가져옵니다.
+            df = stock_data.history(period="1y")
 
-# ---------------------------------------------------------
-# 종목 데이터 조회
-# ---------------------------------------------------------
-if ticker:
-    try:
-        with st.spinner("주가 데이터를 불러오는 중이에요..."):
-            data = get_stock_data(ticker)
+            # 데이터가 비어 있는지 검사합니다.
+            if df.empty:
+                st.warning(f"⚠️ **'{ticker}'** 종목의 주가 정보를 찾을 수 없습니다. 종목 코드를 다시 확인해 주세요.")
+            else:
+                # 최근 종가와 1년 전 첫 거래일 종가를 추출합니다.
+                latest_price = df['Close'].iloc[-1]
+                first_price = df['Close'].iloc[0]
+                
+                # 변동 금액 및 변동률(%)을 계산합니다.
+                price_change = latest_price - first_price
+                percentage_change = (price_change / first_price) * 100
 
-        # 데이터를 찾지 못한 경우
-        if data.empty:
-            st.error(
-                "종목 데이터를 찾지 못했어요. "
-                "Yahoo Finance에서 사용하는 종목 코드를 확인해 주세요."
-            )
-            st.stop()
+                # 통화 단위 표시 구분 (한국 주식인 경우 원, 외화인 경우 $)
+                is_korean = ticker.endswith(".KS") or ticker.endswith(".KQ")
+                currency_symbol = "원" if is_korean else "$"
+                
+                # 금액 포맷팅 (원화는 정수 단위 위주, 달러는 소수점 2자리)
+                if is_korean:
+                    fmt_latest = f"{latest_price:,.0f}{currency_symbol}"
+                    fmt_change = f"{price_change:+,.0f}{currency_symbol}"
+                else:
+                    fmt_latest = f"{currency_symbol}{latest_price:,.2f}"
+                    fmt_change = f"{currency_symbol}{price_change:+,.2f}"
 
-        # -------------------------------------------------
-        # yfinance 버전에 따라 컬럼이 MultiIndex일 수 있으므로
-        # 종가(Close) 데이터를 안전하게 가져옵니다.
-        # -------------------------------------------------
-        if hasattr(data.columns, "nlevels") and data.columns.nlevels > 1:
-            close_data = data["Close"]
+                st.markdown("### 📊 주요 지표")
+                m_col1, m_col2, m_col3 = st.columns(3)
 
-            # 종목 하나만 조회했으므로 Series 형태로 변환합니다.
-            if hasattr(close_data, "columns"):
-                close_data = close_data.iloc[:, 0]
-        else:
-            close_data = data["Close"]
+                with m_col1:
+                    st.metric(
+                        label="현재가 (최근 종가)",
+                        value=fmt_latest
+                    )
 
-        # 결측값 제거
-        close_data = close_data.dropna()
+                with m_col2:
+                    st.metric(
+                        label="1년 전 대비 변동 금액",
+                        value=fmt_change,
+                        delta=fmt_change
+                    )
 
-        if close_data.empty:
-            st.error("종가 데이터를 가져오지 못했어요.")
-            st.stop()
+                with m_col3:
+                    st.metric(
+                        label="1년 등락률",
+                        value=f"{percentage_change:+.2f}%",
+                        delta=f"{percentage_change:+.2f}%"
+                    )
 
-        # -------------------------------------------------
-        # 현재가와 1년 전 가격 계산
-        # -------------------------------------------------
-        current_price = float(close_data.iloc[-1])
-        first_price = float(close_data.iloc[0])
+                st.markdown("### 📉 최근 1년 주가 추이")
+                
+                # Plotly를 활용해 부드럽고 따뜻한 느낌의 라인 차트를 생성합니다.
+                fig = go.Figure()
 
-        # 1년 등락률 계산
-        change_rate = ((current_price - first_price) / first_price) * 100
+                # 주가 꺾은선 그리기
+                fig.add_trace(
+                    go.Scatter(
+                        x=df.index,
+                        y=df['Close'],
+                        mode='lines',
+                        name='종가',
+                        line=dict(color='#E07A5F', width=2.5), # 따뜻한 테라코타/코랄 오렌지 색상
+                        fill='tozeroy',
+                        fillcolor='rgba(224, 122, 95, 0.08)', # 아래 영역 은은하게 채우기
+                        hovertemplate="<b>날짜</b>: %{x|%Y-%m-%d}<br><b>주가</b>: %{y:,.2f}<extra></extra>"
+                    )
+                )
 
-        # 가격 표시 형식
-        price_text = f"{current_price:,.2f}"
+                # 그래프 내부 레이아웃 및 디자인 설정
+                fig.update_layout(
+                    title=dict(
+                        text=f"<b>{ticker}</b> 1년 주가 차트",
+                        font=dict(size=18, color="#3D405B")
+                    ),
+                    xaxis=dict(
+                        title="날짜",
+                        showgrid=True,
+                        gridcolor="#F0EAE1",
+                        zeroline=False
+                    ),
+                    yaxis=dict(
+                        title=f"주가 ({currency_symbol})",
+                        showgrid=True,
+                        gridcolor="#F0EAE1",
+                        zeroline=False
+                    ),
+                    hovermode="x unified",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(255,255,255,0.7)",
+                    margin=dict(l=20, r=20, t=50, b=20)
+                )
 
-        # 등락률에 따라 색상과 아이콘 결정
-        if change_rate > 0:
-            change_color = "#C65D3B"
-            change_icon = "▲"
-        elif change_rate < 0:
-            change_color = "#4F78A8"
-            change_icon = "▼"
-        else:
-            change_color = "#806B5A"
-            change_icon = "—"
+                # Streamlit에 Plotly 차트를 출력합니다.
+                st.plotly_chart(fig, use_container_width=True)
 
-        # -------------------------------------------------
-        # 지표 카드
-        # -------------------------------------------------
-        col1, col2 = st.columns(2)
+                with st.expander("🌱 초보자를 위한 작은 도움말"):
+                    st.markdown("""
+                    - **현재가**: 시장 거래 기준 가장 최근에 마감된 주가(종가)입니다.
+                    - **1년 등락률**: 정확히 1년 전 거래일 종가 대비 현재 주가가 몇 % 상승 또는 하락했는지를 보여줍니다.
+                    - **차트 활용법**: 마우스를 그래프 위에 올리면 특정 날짜의 정확한 주가를 확인할 수 있습니다.
+                    """)
 
-        with col1:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                    <div class="metric-title">현재가</div>
-                    <div class="metric-value">{price_text}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        except Exception as e:
+            st.error(f"데이터를 조회하는 중 알 수 없는 오류가 발생했습니다: {e}")
 
-        with col2:
-            st.markdown(
-                f"""
-                <div class="metric-card">
-                    <div class="metric-title">1년 등락률</div>
-                    <div class="metric-value" style="color: {change_color};">
-                        {change_icon} {change_rate:+.2f}%
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-        st.write("")
-
-        # -------------------------------------------------
-        # 최근 1년 주가 차트
-        # -------------------------------------------------
-        st.subheader("📊 최근 1년 주가 흐름")
-
-        fig = go.Figure()
-
-        # 꺾은선 그래프 추가
-        fig.add_trace(
-            go.Scatter(
-                x=close_data.index,
-                y=close_data.values,
-                mode="lines",
-                name="종가",
-                line=dict(
-                    color="#D9825B",
-                    width=2.5,
-                ),
-                hovertemplate="%{x|%Y-%m-%d}<br>"
-                "주가: %{y:,.2f}<extra></extra>",
-            )
-        )
-
-        # 차트 디자인
-        fig.update_layout(
-            height=500,
-            margin=dict(l=20, r=20, t=20, b=20),
-            paper_bgcolor="#FFF9F3",
-            plot_bgcolor="#FFF9F3",
-            hovermode="x unified",
-            showlegend=False,
-            xaxis=dict(
-                title="날짜",
-                showgrid=False,
-            ),
-            yaxis=dict(
-                title="주가",
-                gridcolor="#F0E1D2",
-                zeroline=False,
-            ),
-            font=dict(
-                color="#5C4033",
-            ),
-        )
-
-        st.plotly_chart(
-            fig,
-            use_container_width=True,
-            config={
-                "displayModeBar": False,
-            },
-        )
-
-        # -------------------------------------------------
-        # 간단한 안내 문구
-        # -------------------------------------------------
-        st.caption(
-            "※ 주가는 Yahoo Finance에서 제공하는 데이터를 기준으로 표시됩니다. "
-            "실시간 가격과는 차이가 있을 수 있습니다."
-        )
-
-    except Exception as e:
-        # 예상하지 못한 오류가 발생했을 때 사용자에게 안내합니다.
-        st.error(
-            "주가 데이터를 불러오는 중 문제가 발생했어요. "
-            "종목 코드를 다시 확인해 주세요."
-        )
-
-        # 개발자가 오류 원인을 확인할 수 있도록 상세 오류를 접어서 표시합니다.
-        with st.expander("오류 상세 보기"):
-            st.write(str(e))
+st.divider()
+st.caption("💡 본 앱에서 제공하는 정보는 투자 참고용이며, 투자 결과에 대한 책임은 본인에게 있습니다. (출처: Yahoo Finance)")
