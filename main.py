@@ -1,174 +1,154 @@
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
-import pandas as pd
+from datetime import datetime, timedelta
 
-# 페이지의 제목, 아이콘, 레이아웃을 설정합니다.
+# ==========================================
+# 1. 페이지 기본 설정 및 디자인 (Warm Tone)
+# ==========================================
 st.set_page_config(
-    page_title="따뜻한 주식 알리미",
+    page_title="주식 주가 조회기",
     page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# 웹앱 전체의 가독성과 따뜻한 분위기를 연출하기 위한 커스텀 스타일링입니다.
+# 따뜻한 크림/황금색 톤의 커스텀 CSS 스타일 적용
 st.markdown("""
-<style>
-    /* 배경색을 따뜻하고 편안한 미색 톤으로 설정 */
+    <style>
+    /* 전체 배경을 따뜻한 크림톤으로 설정 */
     .stApp {
-        background-color: #FAF9F6;
+        background-color: #FFFDF9;
     }
-    /* 카드 컴포넌트에 은은한 그림자와 부드러운 테두리 적용 */
+    /* 지표 카드(Metric) 스타일링 */
     div[data-testid="stMetric"] {
-        background-color: #FFFFFF;
-        border: 1px solid #F0EAE1;
-        border-radius: 12px;
+        background-color: #FFF9E6;
+        border: 1px solid #FFE494;
         padding: 16px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.03);
+        border-radius: 12px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.03);
     }
-</style>
+    </style>
 """, unsafe_allow_html=True)
 
-# 앱 상단 제목 및 서비스 소개 문구
-st.title("📈 한눈에 보는 따뜻한 주식 알리미")
-st.markdown("""
-궁금한 주식 종목의 **티커 코드**를 입력해 보세요. 
-최근 1년 동안의 주가 흐름과 현재 상태를 따뜻하고 보기 쉽게 정리해 드립니다! ✨
-""")
+# ==========================================
+# 2. 헤더 및 입력 영역
+# ==========================================
+st.title("📈 주식 주가 조회기")
+st.write("관심 있는 주식 종목 코드를 입력하면 최근 1년간의 주가 흐름을 한눈에 확인할 수 있습니다.")
+st.caption("예시: 삼성전자 (005930.KS), SK하이닉스 (000660.KS), 애플 (AAPL), 테슬라 (TSLA), 엔비디아 (NVDA)")
 
-st.divider()
+# 종목 코드 입력창 (기본값: 삼성전자)
+ticker_symbol = st.text_input("종목 코드를 입력하세요:", value="005930.KS").strip().upper()
 
-# 사용자로부터 주식 종목 코드를 입력받는 검색창입니다.
-st.subheader("🔍 종목 검색")
-col_input, col_help = st.columns([3, 1])
+# ==========================================
+# 3. 데이터 수집 함수 (캐싱 적용)
+# ==========================================
+@st.cache_data(ttl=3600)  # 1시간(3600초) 동안 데이터를 캐싱하여 반복 조회를 빠르게 합니다.
+def get_stock_data(symbol):
+    try:
+        ticker = yf.Ticker(symbol)
+        
+        # 오늘 날짜 기준으로 정확히 1년 전 날짜 계산
+        end_date = datetime.today()
+        start_date = end_date - timedelta(days=365)
+        
+        # 주가 데이터 수집 (일일 종가 기준)
+        df = ticker.history(start=start_date, end=end_date)
+        
+        # 종목 기본 정보 (이름, 통화 단위 등) 수집
+        info = ticker.info
+        
+        return df, info
+    except Exception:
+        return None, None
 
-with col_input:
-    # 기본값으로 삼성전자(005930.KS)를 지정합니다.
-    ticker_input = st.text_input(
-        label="주식 종목 코드를 입력하세요",
-        value="005930.KS",
-        placeholder="예: 005930.KS, AAPL, TSLA",
-        label_visibility="collapsed"
-    )
+# ==========================================
+# 4. 주가 데이터 처리 및 화면 출력
+# ==========================================
+if ticker_symbol:
+    # 데이터 로딩 애니메이션 표시
+    with st.spinner("주가 데이터를 불러오는 중입니다..."):
+        df, info = get_stock_data(ticker_symbol)
 
-with col_help:
-    st.caption("💡 **입력 팁**\n- 한국 코스피: `005930.KS`\n- 한국 코스닥: `068270.KQ`\n- 미국 주식: `AAPL`, `NVDA`")
+    # 데이터가 정상적으로 수집되었는지 확인
+    if df is not None and not df.empty:
+        # 회사 이름과 통화 단위 추출
+        company_name = info.get("shortName", ticker_symbol) if info else ticker_symbol
+        currency = info.get("currency", "KRW") if info else "KRW"
+        
+        # 통화 기호 설정
+        currency_symbol = "₩" if currency == "KRW" else "$"
 
-# 입력된 코드가 있을 때 yfinance로 데이터 조회를 시작합니다.
-if ticker_input:
-    # 공백 제거 및 대문자 변환
-    ticker = ticker_input.strip().upper()
-    
-    with st.spinner(f"'{ticker}' 데이터를 따뜻하게 가져오는 중입니다... ☕"):
-        try:
-            # yfinance를 사용하여 해당 종목의 객체를 생성합니다.
-            stock_data = yf.Ticker(ticker)
+        # 최신 종가 및 1년 전 시작가 계산
+        latest_price = df['Close'].iloc[-1]
+        first_price = df['Close'].iloc[0]
+        
+        # 등락 금액 및 등락률 계산
+        price_change = latest_price - first_price
+        return_rate = (price_change / first_price) * 100
+
+        st.divider()
+        st.subheader(f"🔍 {company_name} ({ticker_symbol}) 요약")
+
+        # ----------------------------------
+        # 지표 카드 표시 (Metric Cards)
+        # ----------------------------------
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric(
+                label="현재가",
+                value=f"{currency_symbol} {latest_price:,.0f}" if currency == "KRW" else f"{currency_symbol} {latest_price:,.2f}"
+            )
+        
+        with col2:
+            st.metric(
+                label="1년 등락률",
+                value=f"{return_rate:+.2f}%",
+                delta=f"{price_change:+,.0f} {currency}" if currency == "KRW" else f"{price_change:+,.2f} {currency}"
+            )
             
-            # 최근 1년(1y)간의 일별 데이터를 가져옵니다.
-            df = stock_data.history(period="1y")
+        with col3:
+            high_price = df['High'].max()
+            st.metric(
+                label="1년 최고가",
+                value=f"{currency_symbol} {high_price:,.0f}" if currency == "KRW" else f"{currency_symbol} {high_price:,.2f}"
+            )
 
-            # 데이터가 비어 있는지 검사합니다.
-            if df.empty:
-                st.warning(f"⚠️ **'{ticker}'** 종목의 주가 정보를 찾을 수 없습니다. 종목 코드를 다시 확인해 주세요.")
-            else:
-                # 최근 종가와 1년 전 첫 거래일 종가를 추출합니다.
-                latest_price = df['Close'].iloc[-1]
-                first_price = df['Close'].iloc[0]
-                
-                # 변동 금액 및 변동률(%)을 계산합니다.
-                price_change = latest_price - first_price
-                percentage_change = (price_change / first_price) * 100
+        # ----------------------------------
+        # Plotly 꺾은선 차트 그리기
+        # ----------------------------------
+        fig = go.Figure()
 
-                # 통화 단위 표시 구분 (한국 주식인 경우 원, 외화인 경우 $)
-                is_korean = ticker.endswith(".KS") or ticker.endswith(".KQ")
-                currency_symbol = "원" if is_korean else "$"
-                
-                # 금액 포맷팅 (원화는 정수 단위 위주, 달러는 소수점 2자리)
-                if is_korean:
-                    fmt_latest = f"{latest_price:,.0f}{currency_symbol}"
-                    fmt_change = f"{price_change:+,.0f}{currency_symbol}"
-                else:
-                    fmt_latest = f"{currency_symbol}{latest_price:,.2f}"
-                    fmt_change = f"{currency_symbol}{price_change:+,.2f}"
+        # 주가 추이 선 추가
+        fig.add_trace(go.Scatter(
+            x=df.index,
+            y=df['Close'],
+            mode='lines',
+            name='종가',
+            line=dict(color='#D97706', width=2.5),  # 따뜻한 앰버/오렌지 색상
+            hovertemplate='<b>날짜:</b> %{x|%Y-%m-%d}<br><b>주가:</b> ' + currency_symbol + ' %{y:,.2f}<extra></extra>'
+        ))
 
-                st.markdown("### 📊 주요 지표")
-                m_col1, m_col2, m_col3 = st.columns(3)
+        # 차트 레이아웃 설정 (따뜻한 크림 톤)
+        fig.update_layout(
+            title=f"<b>{company_name} 최근 1년 주가 추이</b>",
+            title_font=dict(size=18, color="#4A3E3D"),
+            xaxis_title="날짜",
+            yaxis_title=f"주가 ({currency})",
+            paper_bgcolor='#FFFDF9',     # 차트 바깥 영역 배경색
+            plot_bgcolor='#FFFBEB',      # 차트 안쪽 영역 배경색
+            font=dict(color="#4A3E3D", size=12),
+            hovermode="x unified",
+            margin=dict(l=40, r=40, t=60, b=40),
+            xaxis=dict(showgrid=True, gridcolor='#FDE68A'),  # 연한 황금빛 격자선
+            yaxis=dict(showgrid=True, gridcolor='#FDE68A')
+        )
 
-                with m_col1:
-                    st.metric(
-                        label="현재가 (최근 종가)",
-                        value=fmt_latest
-                    )
+        # Streamlit 화면에 Plotly 차트 대화형으로 표시
+        st.plotly_chart(fig, use_container_width=True)
 
-                with m_col2:
-                    st.metric(
-                        label="1년 전 대비 변동 금액",
-                        value=fmt_change,
-                        delta=fmt_change
-                    )
-
-                with m_col3:
-                    st.metric(
-                        label="1년 등락률",
-                        value=f"{percentage_change:+.2f}%",
-                        delta=f"{percentage_change:+.2f}%"
-                    )
-
-                st.markdown("### 📉 최근 1년 주가 추이")
-                
-                # Plotly를 활용해 부드럽고 따뜻한 느낌의 라인 차트를 생성합니다.
-                fig = go.Figure()
-
-                # 주가 꺾은선 그리기
-                fig.add_trace(
-                    go.Scatter(
-                        x=df.index,
-                        y=df['Close'],
-                        mode='lines',
-                        name='종가',
-                        line=dict(color='#E07A5F', width=2.5), # 따뜻한 테라코타/코랄 오렌지 색상
-                        fill='tozeroy',
-                        fillcolor='rgba(224, 122, 95, 0.08)', # 아래 영역 은은하게 채우기
-                        hovertemplate="<b>날짜</b>: %{x|%Y-%m-%d}<br><b>주가</b>: %{y:,.2f}<extra></extra>"
-                    )
-                )
-
-                # 그래프 내부 레이아웃 및 디자인 설정
-                fig.update_layout(
-                    title=dict(
-                        text=f"<b>{ticker}</b> 1년 주가 차트",
-                        font=dict(size=18, color="#3D405B")
-                    ),
-                    xaxis=dict(
-                        title="날짜",
-                        showgrid=True,
-                        gridcolor="#F0EAE1",
-                        zeroline=False
-                    ),
-                    yaxis=dict(
-                        title=f"주가 ({currency_symbol})",
-                        showgrid=True,
-                        gridcolor="#F0EAE1",
-                        zeroline=False
-                    ),
-                    hovermode="x unified",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(255,255,255,0.7)",
-                    margin=dict(l=20, r=20, t=50, b=20)
-                )
-
-                # Streamlit에 Plotly 차트를 출력합니다.
-                st.plotly_chart(fig, use_container_width=True)
-
-                with st.expander("🌱 초보자를 위한 작은 도움말"):
-                    st.markdown("""
-                    - **현재가**: 시장 거래 기준 가장 최근에 마감된 주가(종가)입니다.
-                    - **1년 등락률**: 정확히 1년 전 거래일 종가 대비 현재 주가가 몇 % 상승 또는 하락했는지를 보여줍니다.
-                    - **차트 활용법**: 마우스를 그래프 위에 올리면 특정 날짜의 정확한 주가를 확인할 수 있습니다.
-                    """)
-
-        except Exception as e:
-            st.error(f"데이터를 조회하는 중 알 수 없는 오류가 발생했습니다: {e}")
-
-st.divider()
-st.caption("💡 본 앱에서 제공하는 정보는 투자 참고용이며, 투자 결과에 대한 책임은 본인에게 있습니다. (출처: Yahoo Finance)")
+    else:
+        # 데이터 수집 실패 시 오류 안내
+        st.error("⚠️ 주가 데이터를 불러올 수 없습니다. 종목 코드를 다시 확인해 주세요.")
+        st.info("💡 **Tip:** 한국 주식은 종목코드 뒤에 **.KS**(코스피) 또는 **.KQ**(코스닥)를 꼭 붙여야 합니다. (예: 삼성전자 → 005930.KS, 카카오 → 035720.KS)")
