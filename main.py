@@ -1,6 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import datetime, timedelta
 
 # ────────────────────────────────────────────────
@@ -194,17 +195,112 @@ def render_stock_section(ticker: str, days: int):
 
 
 # ────────────────────────────────────────────────
-# 메인 로직: 입력된 종목 개수에 따라 1열 또는 2열로 표시
+# 두 종목을 하나의 그래프에 겹쳐 그리는 함수
+# (단위/통화가 다를 수 있으므로 왼쪽·오른쪽 두 개의 y축을 사용)
+# ────────────────────────────────────────────────
+def render_comparison_section(ticker_a: str, ticker_b: str, days: int):
+    with st.spinner("두 종목 데이터를 불러오는 중이에요..."):
+        try:
+            df_a, name_a = load_stock_data(ticker_a, days)
+        except Exception as e:
+            st.error(f"{ticker_a} 데이터를 불러오는 중 오류가 발생했어요: {e}")
+            return
+        try:
+            df_b, name_b = load_stock_data(ticker_b, days)
+        except Exception as e:
+            st.error(f"{ticker_b} 데이터를 불러오는 중 오류가 발생했어요: {e}")
+            return
+
+    if df_a is None or df_a.empty:
+        st.warning(f"{ticker_a} 데이터를 찾을 수 없어요. 종목 코드를 다시 확인해주세요 🙏")
+        return
+    if df_b is None or df_b.empty:
+        st.warning(f"{ticker_b} 데이터를 찾을 수 없어요. 종목 코드를 다시 확인해주세요 🙏")
+        return
+
+    korean_a = is_korean_ticker(ticker_a)
+    korean_b = is_korean_ticker(ticker_b)
+
+    st.subheader(f"🏢 {name_a} ({ticker_a})  vs  🏢 {name_b} ({ticker_b})")
+
+    # ── 하나의 그래프에 두 종목을 겹쳐 그리기 (보조 y축 사용) ──
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig.add_trace(
+        go.Scatter(
+            x=df_a.index,
+            y=df_a["Close"],
+            mode="lines",
+            name=f"{name_a} ({'원' if korean_a else '$'})",
+            line=dict(color="#FF8C42", width=2.5),  # 따뜻한 주황색
+        ),
+        secondary_y=False,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=df_b.index,
+            y=df_b["Close"],
+            mode="lines",
+            name=f"{name_b} ({'원' if korean_b else '$'})",
+            line=dict(color="#4A90D9", width=2.5),  # 대비되는 파란색
+        ),
+        secondary_y=True,
+    )
+
+    fig.update_layout(
+        title=f"{name_a} vs {name_b} ({st.session_state.selected_period}) 주가 비교",
+        xaxis_title="날짜",
+        template="plotly_white",
+        hovermode="x unified",
+        height=480,
+        font=dict(family="Arial, sans-serif", size=13),
+        plot_bgcolor="rgba(255, 250, 245, 0.5)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    fig.update_yaxes(title_text=f"{name_a} 종가 ({'원' if korean_a else '$'})", secondary_y=False)
+    fig.update_yaxes(title_text=f"{name_b} 종가 ({'원' if korean_b else '$'})", secondary_y=True)
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # ── 그래프 아래에 두 종목의 지표를 나란히 표시 ──
+    metric_col_a, metric_col_b = st.columns(2)
+
+    for col, ticker, df, name, korean in (
+        (metric_col_a, ticker_a, df_a, name_a, korean_a),
+        (metric_col_b, ticker_b, df_b, name_b, korean_b),
+    ):
+        with col:
+            st.markdown(f"**{name} ({ticker})**")
+
+            current_price = df["Close"].iloc[-1]
+            start_price = df["Close"].iloc[0]
+            price_change = current_price - start_price
+            percent_change = (price_change / start_price) * 100
+
+            st.metric(label="💰 현재가", value=format_price(current_price, korean))
+            st.metric(
+                label=f"📊 {st.session_state.selected_period} 등락률",
+                value=f"{percent_change:+.2f}%",
+                delta=format_price(price_change, korean),
+            )
+
+            highest_price = df["Close"].max()
+            lowest_price = df["Close"].min()
+            average_price = df["Close"].mean()
+
+            st.metric(label="🔼 최고가", value=format_price(highest_price, korean))
+            st.metric(label="🔽 최저가", value=format_price(lowest_price, korean))
+            st.metric(label="➗ 평균가", value=format_price(average_price, korean))
+
+
+# ────────────────────────────────────────────────
+# 메인 로직: 입력된 종목 개수에 따라 화면 구성이 달라짐
 # ────────────────────────────────────────────────
 if not ticker_1 and not ticker_2:
     st.info("👆 위 입력창에 종목 코드를 입력하면 주가 그래프가 나타나요!")
 elif ticker_1 and ticker_2:
-    # 두 종목 모두 입력된 경우: 나란히 비교
-    compare_col1, compare_col2 = st.columns(2)
-    with compare_col1:
-        render_stock_section(ticker_1, selected_days)
-    with compare_col2:
-        render_stock_section(ticker_2, selected_days)
+    # 두 종목 모두 입력된 경우: 하나의 그래프에 겹쳐서 비교
+    render_comparison_section(ticker_1, ticker_2, selected_days)
 else:
     # 하나만 입력된 경우: 입력된 종목만 표시
     single_ticker = ticker_1 if ticker_1 else ticker_2
